@@ -1702,7 +1702,7 @@ class VoiceAssistantApp {
 
 
 
-  start(port = 3001) {
+  start(port = process.env.PORT || 3001) {
     this.server.listen(port, () => {
       console.log(`Server is listening on port ${port}`);
       console.log('Environment check:');
@@ -1733,4 +1733,4 @@ const app = new VoiceAssistantApp();
  * @access  Public
  */
 
-app.start(3001);
+app.start();
