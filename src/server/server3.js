@@ -5,16 +5,13 @@ import dotenv from 'dotenv';
 import { ChatGroq } from "@langchain/groq";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 
-// --- MODIFIED IMPORTS FOR RAG (FROM YOUR SECOND FILE) ---
+// --- RAG IMPORTS ---
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { formatDocumentsAsString } from "langchain/util/document";
 import { RunnableSequence } from "@langchain/core/runnables";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-// Using the exact vector store and embeddings from your second example
 import { HuggingFaceTransformersEmbeddings } from "@langchain/community/embeddings/hf_transformers";
 import { FaissStore } from "@langchain/community/vectorstores/faiss";
-// --- END MODIFIED IMPORTS ---
-
 
 // Load environment variables from .env file
 dotenv.config();
@@ -128,7 +125,7 @@ app.post('/api/debates', async (req, res) => {
 });
 
 
-// --- MODIFIED RAG Chat Endpoint (Using logic from your second file) ---
+// --- MODIFIED RAG Chat Endpoint ---
 app.post('/api/chat/rag', async (req, res) => {
   const { question, clientId } = req.body;
 
@@ -138,7 +135,6 @@ app.post('/api/chat/rag', async (req, res) => {
 
   try {
     // === 1. LOAD ===
-    // Fetch debates from MongoDB. If a clientId is provided, filter by it.
     const query = clientId ? { clientId } : {};
     const debates = await Debate.find(query).sort({ createdAt: -1 });
 
@@ -149,7 +145,6 @@ app.post('/api/chat/rag', async (req, res) => {
       });
     }
 
-    // Format the raw debate documents into simple text strings for processing.
     const debateTexts = debates.map(debate => {
       const chatHistoryText = debate.chatHistory
         .map(chat => `${chat.speaker}: ${chat.content}`)
@@ -158,51 +153,46 @@ app.post('/api/chat/rag', async (req, res) => {
     });
 
     // === 2. SPLIT ===
-    // Create a text splitter to break down large debates into smaller chunks.
     const textSplitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 1000, // Using chunkSize from your second file's example
+      chunkSize: 1000,
       chunkOverlap: 200,
     });
     const splitDocs = await textSplitter.createDocuments(debateTexts);
 
     // === 3. EMBED & STORE ===
-    // Initialize the exact same local embedding model from your second file.
     const embeddings = new HuggingFaceTransformersEmbeddings({
       modelName: "Xenova/all-MiniLM-L6-v2",
     });
-
-    // Create an in-memory FAISS vector store from the split documents, as in your second file.
     const vectorStore = await FaissStore.fromDocuments(splitDocs, embeddings);
 
     // === 4. RETRIEVE ===
-    // Create a retriever to find the 5 most relevant document chunks.
-    const retriever = vectorStore.asRetriever({
-      k: 5
-    });
+    const retriever = vectorStore.asRetriever({ k: 5 });
 
-    // === 5. GENERATE (This part remains the same as it correctly uses the retriever) ===
-    // Define the prompt template.
+    // === 5. GENERATE ===
     const prompt = ChatPromptTemplate.fromMessages([
       ["system", "You are an expert assistant who analyzes a user's debate history. Answer the user's question based ONLY on the context provided below. If the information is not in the context, explicitly state that you cannot answer based on their history. Be concise and helpful.\n\nCONTEXT:\n{context}"],
       ["human", "{question}"],
     ]);
 
-    // Define the LLM model.
     const model = new ChatGroq({
       apiKey: process.env.GROQ_API_KEY,
       model: "openai/gpt-oss-20b",
     });
     
-    // Create the RAG chain using LangChain Expression Language (LCEL).
+    // --- THIS IS THE CORRECTED PART ---
     const ragChain = RunnableSequence.from([
       {
-        context: retriever.pipe(formatDocumentsAsString),
+        // The 'context' is now a sub-chain that first extracts the question string
+        // before passing it to the retriever.
+        context: ((input) => input.question).pipe(retriever).pipe(formatDocumentsAsString),
+        // The 'question' is passed through unchanged.
         question: (input) => input.question,
       },
       prompt,
       model,
       new StringOutputParser(),
     ]);
+    // --- END OF CORRECTION ---
 
     // Invoke the chain with the user's question.
     const result = await ragChain.invoke({ question: question });
