@@ -1496,9 +1496,9 @@ class VoiceAssistantApp {
       }
     });
 
-    this.app.get("/", (req, res) => {
-      res.sendFile("/public/index.html");
-    });
+    // this.app.get("/", (req, res) => {
+    //   res.sendFile("/public/index.html");
+    // });
 
     this.app.post("/api/clear-context/:clientId", (req, res) => {
       // This route is likely obsolete with session-based context, but kept for compatibility
