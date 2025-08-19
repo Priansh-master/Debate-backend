@@ -10,7 +10,7 @@ import { StringOutputParser } from "@langchain/core/output_parsers";
 import { formatDocumentsAsString } from "langchain/util/document";
 import { RunnableSequence } from "@langchain/core/runnables";
 import { MemoryVectorStore } from "langchain/vectorstores/memory";
-import { FastEmbedEmbeddings } from "@langchain/community/embeddings/fastembed";
+import { FastEmbedEmbeddings } from "@langchain/fastembed";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 // --- END NEW IMPORTS ---
 
