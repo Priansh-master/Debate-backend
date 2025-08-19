@@ -184,7 +184,7 @@ app.post('/api/chat/rag', async (req, res) => {
     const context = formatDebatesForLLM(debates);
     const model = new ChatGroq({
       apiKey: process.env.GROQ_API_KEY,
-      model: "llama3-8b-8192", // Using a recommended fast model
+      model: "openai/gpt-oss-20b", // Using a recommended fast model
     });
 
     const prompt = ChatPromptTemplate.fromMessages([
