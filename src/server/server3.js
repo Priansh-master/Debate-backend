@@ -37,7 +37,7 @@ connectDB();
 
 // Debate Schema - No changes needed here.
 const debateSchema = new mongoose.Schema({
-  clientId: { type: String, required: true, index: true },
+  clientId: { type: String, required: true, index: true }, // Added index for faster queries on clientId
   debateTopic: { type: String, required: true },
   userRole: { type: String, required: true },
   chatHistory: [{
@@ -58,9 +58,12 @@ const Debate = mongoose.model('Debate', debateSchema);
 
 // --- Routes ---
 
-// Get all debates from all clients (basic info)
+// MODIFICATION: Get all debates from all clients (basic info)
+// This new route fetches a summary of all debates.
 app.get('/api/debates', async (req, res) => {
   try {
+    // Fetches from all documents, but only returns the necessary fields for the list view.
+    // We now include 'clientId' so the frontend can display it.
     const debates = await Debate.find(
       {},
       'debateTopic userRole createdAt clientId'
@@ -77,7 +80,8 @@ app.get('/api/debates', async (req, res) => {
   }
 });
 
-// Get complete details of a specific debate by its ID
+// MODIFICATION: Get complete details of a specific debate by its ID
+// This route is now simpler and doesn't require the clientId.
 app.get('/api/debates/:debateId', async (req, res) => {
   try {
     const { debateId } = req.params;
@@ -86,6 +90,7 @@ app.get('/api/debates/:debateId', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid debate ID format.' });
     }
 
+    // Find by the unique debate ID (_id)
     const debate = await Debate.findById(debateId);
 
     if (!debate) {
@@ -124,7 +129,6 @@ app.post('/api/debates', async (req, res) => {
   }
 });
 
-// This function remains the same as it does not access uploadedFiles.
 const formatDebatesForLLM = (debates) => {
   if (!debates || debates.length === 0) {
     return "No debate history found.";
@@ -156,7 +160,7 @@ ${adjudicationText}
 };
 
 
-// New RAG Chat Endpoint - Now ignores the 'uploadedFiles' field during retrieval.
+// New RAG Chat Endpoint - Now can query across all clients if needed.
 app.post('/api/chat/rag', async (req, res) => {
   const { question, clientId } = req.body; // Can optionally filter by clientId here
 
@@ -167,13 +171,7 @@ app.post('/api/chat/rag', async (req, res) => {
   try {
     // RETRIEVAL: Fetch debates. If a clientId is provided, filter by it. Otherwise, fetch all.
     const query = clientId ? { clientId } : {};
-
-    // --- MODIFICATION IS HERE ---
-    // We use .select('-uploadedFiles') to explicitly exclude the uploadedFiles field
-    // from the documents returned by this query. This is a crucial optimization.
-    const debates = await Debate.find(query)
-      .select('-uploadedFiles') // Exclude the files
-      .sort({ createdAt: -1 });
+    const debates = await Debate.find(query).sort({ createdAt: -1 });
 
     if (debates.length === 0) {
       return res.json({
@@ -186,7 +184,7 @@ app.post('/api/chat/rag', async (req, res) => {
     const context = formatDebatesForLLM(debates);
     const model = new ChatGroq({
       apiKey: process.env.GROQ_API_KEY,
-      model: "llama3-8b-8192",
+      model: "openai/gpt-oss-20b", // Using a recommended fast model
     });
 
     const prompt = ChatPromptTemplate.fromMessages([
