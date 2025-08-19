@@ -171,7 +171,7 @@ app.post('/api/chat/rag', async (req, res) => {
   try {
     // RETRIEVAL: Fetch debates. If a clientId is provided, filter by it. Otherwise, fetch all.
     const query = clientId ? { clientId } : {};
-    const debates = await Debate.find(query).sort({ createdAt: -1 });
+    const debates = await Debate.find(query).sort({ createdAt: -1 }).limit(2).select('chatHistory.content');
 
     if (debates.length === 0) {
       return res.json({
@@ -184,7 +184,7 @@ app.post('/api/chat/rag', async (req, res) => {
     const context = formatDebatesForLLM(debates);
     const model = new ChatGroq({
       apiKey: process.env.GROQ_API_KEY,
-      model: "openai/gpt-oss-20b", // Using a recommended fast model
+      model: "llama-8b-8192", // Using a recommended fast model
     });
 
     const prompt = ChatPromptTemplate.fromMessages([
