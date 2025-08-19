@@ -5,14 +5,15 @@ import dotenv from 'dotenv';
 import { ChatGroq } from "@langchain/groq";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 
-// --- NEW IMPORTS FOR RAG ---
+// --- MODIFIED IMPORTS FOR RAG (FROM YOUR SECOND FILE) ---
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { formatDocumentsAsString } from "langchain/util/document";
 import { RunnableSequence } from "@langchain/core/runnables";
-import { MemoryVectorStore } from "langchain/vectorstores/memory";
-import { FastEmbedEmbeddings } from "@langchain/fastembed";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-// --- END NEW IMPORTS ---
+// Using the exact vector store and embeddings from your second example
+import { HuggingFaceTransformersEmbeddings } from "@langchain/community/embeddings/hf_transformers";
+import { FaissStore } from "@langchain/community/vectorstores/faiss";
+// --- END MODIFIED IMPORTS ---
 
 
 // Load environment variables from .env file
@@ -127,7 +128,7 @@ app.post('/api/debates', async (req, res) => {
 });
 
 
-// --- MODIFIED RAG Chat Endpoint ---
+// --- MODIFIED RAG Chat Endpoint (Using logic from your second file) ---
 app.post('/api/chat/rag', async (req, res) => {
   const { question, clientId } = req.body;
 
@@ -159,17 +160,19 @@ app.post('/api/chat/rag', async (req, res) => {
     // === 2. SPLIT ===
     // Create a text splitter to break down large debates into smaller chunks.
     const textSplitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 2000,
+      chunkSize: 1000, // Using chunkSize from your second file's example
       chunkOverlap: 200,
     });
     const splitDocs = await textSplitter.createDocuments(debateTexts);
 
     // === 3. EMBED & STORE ===
-    // Initialize a local, free embedding model.
-    const embeddings = new FastEmbedEmbeddings();
+    // Initialize the exact same local embedding model from your second file.
+    const embeddings = new HuggingFaceTransformersEmbeddings({
+      modelName: "Xenova/all-MiniLM-L6-v2",
+    });
 
-    // Create an in-memory vector store from the split documents.
-    const vectorStore = await MemoryVectorStore.fromDocuments(splitDocs, embeddings);
+    // Create an in-memory FAISS vector store from the split documents, as in your second file.
+    const vectorStore = await FaissStore.fromDocuments(splitDocs, embeddings);
 
     // === 4. RETRIEVE ===
     // Create a retriever to find the 5 most relevant document chunks.
@@ -177,7 +180,7 @@ app.post('/api/chat/rag', async (req, res) => {
       k: 5
     });
 
-    // === 5. GENERATE ===
+    // === 5. GENERATE (This part remains the same as it correctly uses the retriever) ===
     // Define the prompt template.
     const prompt = ChatPromptTemplate.fromMessages([
       ["system", "You are an expert assistant who analyzes a user's debate history. Answer the user's question based ONLY on the context provided below. If the information is not in the context, explicitly state that you cannot answer based on their history. Be concise and helpful.\n\nCONTEXT:\n{context}"],
@@ -187,7 +190,7 @@ app.post('/api/chat/rag', async (req, res) => {
     // Define the LLM model.
     const model = new ChatGroq({
       apiKey: process.env.GROQ_API_KEY,
-      model: "openai/gpt-oss-20b", // Updated to a strong, fast model
+      model: "openai/gpt-oss-20b",
     });
     
     // Create the RAG chain using LangChain Expression Language (LCEL).
