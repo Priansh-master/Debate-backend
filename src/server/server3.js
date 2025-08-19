@@ -5,14 +5,6 @@ import dotenv from 'dotenv';
 import { ChatGroq } from "@langchain/groq";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 
-// --- RAG IMPORTS ---
-import { StringOutputParser } from "@langchain/core/output_parsers";
-import { formatDocumentsAsString } from "langchain/util/document";
-import { RunnableSequence } from "@langchain/core/runnables";
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-import { HuggingFaceTransformersEmbeddings } from "@langchain/community/embeddings/hf_transformers";
-import { FaissStore } from "@langchain/community/vectorstores/faiss";
-
 // Load environment variables from .env file
 dotenv.config();
 
@@ -45,7 +37,7 @@ connectDB();
 
 // Debate Schema - No changes needed here.
 const debateSchema = new mongoose.Schema({
-  clientId: { type: String, required: true, index: true },
+  clientId: { type: String, required: true, index: true }, // Added index for faster queries on clientId
   debateTopic: { type: String, required: true },
   userRole: { type: String, required: true },
   chatHistory: [{
@@ -64,14 +56,19 @@ const debateSchema = new mongoose.Schema({
 
 const Debate = mongoose.model('Debate', debateSchema);
 
-// --- Routes (No changes to these routes) ---
+// --- Routes ---
 
+// MODIFICATION: Get all debates from all clients (basic info)
+// This new route fetches a summary of all debates.
 app.get('/api/debates', async (req, res) => {
   try {
+    // Fetches from all documents, but only returns the necessary fields for the list view.
+    // We now include 'clientId' so the frontend can display it.
     const debates = await Debate.find(
       {},
       'debateTopic userRole createdAt clientId'
     ).sort({ createdAt: -1 });
+
     res.json({ success: true, data: debates });
   } catch (error) {
     console.error('Error fetching all debates:', error);
@@ -83,16 +80,23 @@ app.get('/api/debates', async (req, res) => {
   }
 });
 
+// MODIFICATION: Get complete details of a specific debate by its ID
+// This route is now simpler and doesn't require the clientId.
 app.get('/api/debates/:debateId', async (req, res) => {
   try {
     const { debateId } = req.params;
+
     if (!mongoose.Types.ObjectId.isValid(debateId)) {
       return res.status(400).json({ success: false, message: 'Invalid debate ID format.' });
     }
+
+    // Find by the unique debate ID (_id)
     const debate = await Debate.findById(debateId);
+
     if (!debate) {
       return res.status(404).json({ success: false, message: 'Debate not found.' });
     }
+
     res.json({ success: true, data: debate });
   } catch (error)
   {
@@ -106,6 +110,7 @@ app.get('/api/debates/:debateId', async (req, res) => {
 });
 
 
+// Create a new debate (for testing)
 app.post('/api/debates', async (req, res) => {
   try {
     const newDebate = new Debate(req.body);
@@ -124,17 +129,47 @@ app.post('/api/debates', async (req, res) => {
   }
 });
 
+const formatDebatesForLLM = (debates) => {
+  if (!debates || debates.length === 0) {
+    return "No debate history found.";
+  }
 
-// --- MODIFIED RAG Chat Endpoint ---
+  return debates.map(debate => {
+    const chatHistoryText = debate.chatHistory
+      .map(chat => `${chat.speaker}: ${chat.content}`)
+      .join('\n');
+
+    const adjudicationText = debate.adjudicationResult && Object.keys(debate.adjudicationResult).length > 0
+      ? `Adjudication Result:\n${JSON.stringify(debate.adjudicationResult, null, 2)}`
+      : 'No adjudication result available.';
+
+    return `
+--- DEBATE START ---
+Debate Topic: ${debate.debateTopic}
+Your Role: ${debate.userRole}
+Client ID: ${debate.clientId}
+Date: ${new Date(debate.createdAt).toDateString()}
+
+Chat History:
+${chatHistoryText}
+
+${adjudicationText}
+--- DEBATE END ---
+    `.trim();
+  }).join('\n\n');
+};
+
+
+// New RAG Chat Endpoint - Now can query across all clients if needed.
 app.post('/api/chat/rag', async (req, res) => {
-  const { question, clientId } = req.body;
+  const { question, clientId } = req.body; // Can optionally filter by clientId here
 
   if (!question) {
     return res.status(400).json({ success: false, message: 'Question is required.' });
   }
 
   try {
-    // === 1. LOAD ===
+    // RETRIEVAL: Fetch debates. If a clientId is provided, filter by it. Otherwise, fetch all.
     const query = clientId ? { clientId } : {};
     const debates = await Debate.find(query).sort({ createdAt: -1 });
 
@@ -145,59 +180,25 @@ app.post('/api/chat/rag', async (req, res) => {
       });
     }
 
-    const debateTexts = debates.map(debate => {
-      const chatHistoryText = debate.chatHistory
-        .map(chat => `${chat.speaker}: ${chat.content}`)
-        .join('\n');
-      return `Debate on "${debate.debateTopic}" (Client: ${debate.clientId}):\n${chatHistoryText}`;
+    // AUGMENTATION & GENERATION
+    const context = formatDebatesForLLM(debates);
+    const model = new ChatGroq({
+      apiKey: process.env.GROQ_API_KEY,
+      model: "llama3-8b-8192", // Using a recommended fast model
     });
 
-    // === 2. SPLIT ===
-    const textSplitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 1000,
-      chunkOverlap: 200,
-    });
-    const splitDocs = await textSplitter.createDocuments(debateTexts);
-
-    // === 3. EMBED & STORE ===
-    const embeddings = new HuggingFaceTransformersEmbeddings({
-      modelName: "Xenova/all-MiniLM-L6-v2",
-    });
-    const vectorStore = await FaissStore.fromDocuments(splitDocs, embeddings);
-
-    // === 4. RETRIEVE ===
-    const retriever = vectorStore.asRetriever({ k: 5 });
-
-    // === 5. GENERATE ===
     const prompt = ChatPromptTemplate.fromMessages([
       ["system", "You are an expert assistant who analyzes a user's debate history. Answer the user's question based ONLY on the context provided below. If the information is not in the context, explicitly state that you cannot answer based on their history. Be concise and helpful.\n\nCONTEXT:\n{context}"],
       ["human", "{question}"],
     ]);
 
-    const model = new ChatGroq({
-      apiKey: process.env.GROQ_API_KEY,
-      model: "openai/gpt-oss-20b",
+    const chain = prompt.pipe(model);
+    const result = await chain.invoke({
+      context: context,
+      question: question,
     });
     
-    // --- THIS IS THE CORRECTED PART ---
-    const ragChain = RunnableSequence.from([
-      {
-        // The 'context' is now a sub-chain that first extracts the question string
-        // before passing it to the retriever.
-        context: ((input) => input.question).pipe(retriever).pipe(formatDocumentsAsString),
-        // The 'question' is passed through unchanged.
-        question: (input) => input.question,
-      },
-      prompt,
-      model,
-      new StringOutputParser(),
-    ]);
-    // --- END OF CORRECTION ---
-
-    // Invoke the chain with the user's question.
-    const result = await ragChain.invoke({ question: question });
-    
-    res.json({ success: true, reply: result });
+    res.json({ success: true, reply: result.content });
 
   } catch (error) {
     console.error('RAG chat error:', error);
