@@ -65,12 +65,14 @@ async function getVectorStore(clientId) {
         // Create a Blob from the buffer to be used by LangChain loaders
         const blob = new Blob([file.buffer], { type: file.mimetype });
         const loader = file.mimetype === 'application/pdf' 
-            ? new PDFLoader(blob, { splitPages: false }) 
+            ? new PDFLoader(blob, { splitPages: true }) 
             : new TextLoader(blob);
         
-        const loadedDocs = await loader.load();
-        // Add filename to metadata for potential future use (e.g., citations)
-        loadedDocs.forEach(doc => doc.metadata.source = file.originalname);
+        const loadedDocs = [];
+      for await (const doc of loader.lazy_load()) {
+        doc.metadata.source = file.originalname; // Add filename to metadata
+        loadedDocs.push(doc);
+      }
         docs.push(...loadedDocs);
     } catch (error) {
         console.error(`[RAG for ${clientId}] Error loading file ${file.originalname} from buffer:`, error);
@@ -83,7 +85,7 @@ async function getVectorStore(clientId) {
   }
 
   console.log(`[RAG for ${clientId}] - Splitting documents into chunks...`);
-  const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 1000, chunkOverlap: 200 });
+  const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 500, chunkOverlap: 100 });
   const chunks = await splitter.splitDocuments(docs);
   console.log(`[RAG for ${clientId}] - Created ${chunks.length} document chunks.`);
 
