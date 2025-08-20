@@ -1626,7 +1626,7 @@ class VoiceAssistantApp {
             const agents = [
               new VoiceAgent(
                 "Moderator", "Parliamentary Debate Moderator",
-                `You are a skilled and impartial parliamentary debate moderator. Your role is to guide the discussion, maintain order, and ensure a balanced debate.\n- The motion for today's debate is: "${debateTopic}"\n- You must remain completely neutral, showing no preference for either side.\n- Your tasks include introducing the topic, calling on speakers in the correct order, asking clarifying questions to both sides, and summarizing key arguments.\n- You speak with authority, clarity, and fairness.\n- ${noStageDirectionsPrompt}`,
+                `You are a skilled and impartial parliamentary debate moderator. Your role is to guide the discussion, maintain order, and ensure a balanced debate.\n- The motion for today's debate is: "${debateTopic}"\n- You must remain completely neutral, showing no preference for either side.\n- Your tasks include introducing the topic to start the debate and inviting the first speaker and summarizing key arguments.\n- You speak with authority, clarity, and fairness, try to be concise while speaking. Keep statements brief (3–4 lines), just enough to set the stage or move the debate forward.\n- ${noStageDirectionsPrompt}`,
                 shuffledVoices.pop() || 'aura-2-thalia-en', conversationContext, vectorStore, this.serpApiSearch
               ),
               new VoiceAgent(
